@@ -54,6 +54,7 @@ const Todo = class {
   show () {
     const state = this.inputTask.args[0];
     const result = this.list.filter( this.stateFilter( state));
+    console.log( result);
 //    const result = this.list.filter( function( item) { return state === item.state;});
   }
   
