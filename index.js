@@ -2,17 +2,6 @@
 요구사항
 다음처럼 동작하는 할일관리 프로그램을 만듭니다.
 
-할일을 추가할 수 있다.
-할일이 추가되면 id 값을 생성하고 결과를 알려준다.
-상태는 3가지로 관리된다. todo, doing, done.
-각 일(task)는 상태값을 가지고 있고, 그 상태값을 변경할 수 있다.
-각 상태에 있는 task는 show함수를 통해서 볼 수 있다.
-명령어를 입력시 command함수를 사용해야하고, '$'를 구분자로 사용해서 넣는다.
-done의 경우 소요시간이 함께 표시된다 (소요시간은 doing에서 done까지의 시간이다)
-구분자($) 사이에 공백이 있다면 공백을 제거하고 실행되도록 한다.
-대/소문자입력은 프로그램에서는 소문자만 처리하도록 코드를 구현한다. (대문자는 소문자로 변경)
-유효하지 않은 입력은 오류를 발생시킨다.
-code 형태는 es class를 기반으로 개발한다.
 
 const todo = new Todo();
 todo.command("add$자바스크립트 공부하기");
@@ -29,13 +18,24 @@ todo.command("show$done");
 > '1, iOS공부하기, 3시간10분',  '5, 자바스크립트공부하기, 9시간31분',  '7, 주간회의 1시간40분'
 */
 const Todo = class {
-  constructor ( ...args) {
-    this.list = args || [];
+  constructor ( options={}) {
+    this.list = [];
     this.inputTask = {};
+    this.defaults = Object.assign( this.getDefaults() , options);
+    this.convertTask = new convertCommand();
+  }
+  getDefaults () {
+    return {
+      statusBeforeText : "현재상태 : ",
+      todoIndex : 0, // add method에 todo index위치
+      stateShowIndex : 0 , // show method에 state index위치
+      idIndex : 0 , // update method에 id index위치
+      stateIndex : 1// update method에 state index위치
+    };
   }
 
   command ( task) {
-    const cmd = new convertCommand( task);
+    const cmd = this.convertTask.setTask( task);
     [this.inputTask.order , ...this.inputTask.args] =  cmd.trim().strtoupper().get();
     this.order();  
   }
@@ -44,37 +44,82 @@ const Todo = class {
     this[ this.inputTask.order] && this[ this.inputTask.order]();
   }
   add () {
-    this.list.push( { todo : this.inputTask.args[0] , state : 'todo' , time : new timeClass() });
+    let added = { id : this.list.length+1 , todo : this.inputTask.args[ this.defaults.todoIndex] , state : 'todo' , time : new timeClass() };
+    this.list.push( added);
+
+    this.outPrint( `id: ${added.id},  "${added.todo}" 항목이 새로 추가됐습니다.` ).nowStatus().outPrint();
   }
 
   stateFilter ( state) {
     return item => item.state === state;
   }
 
+  nowStatus(){
+    let statuses = { done : 0 , doing : 0 , todo:0};
+    let result = '';
+    this.list.forEach( ( item)=>{
+      if( statuses[ item.state] !== undefined ) statuses[ item.state]++;
+    });
+
+    for( let k in statuses) {
+        result += (result!==''?', ':'')+ `${k}:${statuses[k]}개`;
+    }
+    this.log = this.defaults.statusBeforeText + result;
+    return this;
+  }
+
+  outPrint ( message) {
+    if( message===undefined && this.log !== undefined) {
+      console.log( this.log);
+      delete this.log;
+    } else {
+      console.log( message);
+    }
+    return this;
+  }
   show () {
-    const state = this.inputTask.args[0];
-    const result = this.list.filter( this.stateFilter( state));
-    console.log( result);
-//    const result = this.list.filter( function( item) { return state === item.state;});
+    const that = this;
+    const state = that.inputTask.args[ that.defaults.stateShowIndex];
+//    const result = this.list.filter( this.stateFilter( state));
+    const stateCompare = function( object){
+      return object.state === state;
+    };
+    const itemOutput = function( item){
+      that.log = item.id +', '+ item.todo + ( item.state==='done'?', '+item.time.diffTime:'');
+      that.outPrint();
+    };
+
+    Object.assign( [] , that.list.filter( stateCompare)).forEach( itemOutput);
   }
   
   update () {    
-    const target =  this.list[ this.inputTask.args[0] -1];
+    const target =  this.list[ this.inputTask.args[ this.defaults.idIndex] -1];
     if( !target) return;
     const beforeState = target.state;
-    [ ,target.state ] = this.inputTask.args;
+    target.state = this.inputTask.args[ this.defaults.stateIndex];
     if( beforeState !== target.state) {
       target.time.update( target.state +'Time').setDiff();
     }
+    this.nowStatus().outPrint();
   }
 }
 
 const timeClass = class {
-  constructor () {
-    this.doingTime = undefined;
-    this.doneTime = undefined;
+  constructor ( options={}) {
+    this.defaults = Object.assign( this.getDefaults() , options);
+
+//    this[ this.defaults.startTime] = undefined;
+//    this[ this.defaults.endTime] = undefined;
     this.diffTime = '';
   }
+  getDefaults () {
+    return {
+      startTime : 'doing',//시작시간
+      endTime : 'done',//끝나는시간
+      convert : '시분'
+    };
+  }
+
   update( current , now = new Date()) {
     if( typeof this[ current] !== undefined) this[ current] = now;
     return this;
@@ -85,11 +130,14 @@ const timeClass = class {
     return result.length === args.length;
     //this.doingTime
   }
-  setDiff( convert = "시분"){
+  setDiff(){
     let diffseconds = 0;
-    if( this.check([this.doingTime,this.doneTime]) )
-        diffseconds = ( this.end_date - this.start_date) / 1000;
-    switch ( convert) {
+    const startTime = this[ this.defaults.startTime],
+          endTime = this[ this.defaults.endTime];
+
+    if( this.check([ startTime,endTime]) )
+        diffseconds = ( startTime - endTime) / 1000;
+    switch ( this.defaults.convert) {
       case '시분' :
         let hours = Math.floor((diffseconds % 86400) / 3600); // hours
         let minute = Math.round(((diffseconds % 86400) % 3600) / 60); // minutes
@@ -101,12 +149,22 @@ const timeClass = class {
     }
   }
 }
-const convertCommand = class {
-  constructor ( stringCommand) {
-    this.arrayCommand = this.explode.bind( stringCommand)() || [];
-  }
 
-  explode( separator = '$') {
+const convertCommand = class {
+  constructor ( options = {}) {
+    this.defaults = Object.assign( this.getDefaults() , options);
+    this.arrayCommand = [];
+  }
+  setTask ( task) {
+    this.arrayCommand = this.explode.bind( task)( this.defaults.separator);
+    return this;
+  }
+  getDefaults () {
+    return {
+      separator : '$'
+    };
+  }
+  explode( separator) {
     return this.split( separator);
   }
 
@@ -132,6 +190,6 @@ todo.command("add$Todo 실행");
 todo.command("update$3$doing");
 todo.command("shOW     $doing");
 todo.command("update$3$done");
-//todo.command("show$done");
+todo.command("show$done");
 
 //*/
